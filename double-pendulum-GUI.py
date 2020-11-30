@@ -91,12 +91,19 @@ class MyGUI:
         self.theta_2 = 0.0
         self.omega_2 = 0.0
         
-        self.param1 = tk.Scale(self.win, from_=-10, to=10, resolution=0.05, length=self.h*0.54, command=self.refreshParam)
+        """self.param1 = tk.Scale(self.win, from_=-10, to=10, resolution=0.05, length=self.h*0.54, command=self.refreshParam)
         self.param1.place(x=self.w * 0.78, y=self.h*0.01)
         self.param1.update()
         
         self.param2 = tk.Scale(self.win, from_=-10, to=10, resolution=0.05, length=self.h*0.54, command=self.refreshParam)
         self.param2.place(x=self.w * 0.88, y=self.h*0.01)
+        self.param2.update()"""
+        self.param1 = tk.Scale(self.win, from_=-10, to=10, resolution=0.05, orient=tk.HORIZONTAL, length=self.h*0.54, command=self.refreshParam, label="theta_1")
+        self.param1.place(x=self.w * 0.4, y=self.h*0.62)
+        self.param1.update()
+        
+        self.param2 = tk.Scale(self.win, from_=-10, to=10, resolution=0.05, orient=tk.HORIZONTAL, length=self.h*0.54, command=self.refreshParam, label="omega_1")
+        self.param2.place(x=self.w * 0.4, y=self.h*0.69)
         self.param2.update()
         
         # Parameter mapping init
@@ -105,12 +112,32 @@ class MyGUI:
         #  0 = theta_1-omega_1, 1 = theta_1-theta_2, 2 = theta_1-omega_2, 3 = theta_2-omega_2, 4 = omega_1-omega_2, 5 = theta_2-omega_2
         self.set_param_map(5)
         
-        self.param1text = tk.Label(self.win, text=self.param1label)
+        """self.param1text = tk.Label(self.win, text=self.param1label)
         self.param1text.place(x=self.w * 0.8, y=self.h * 0.57)
         self.param2text = tk.Label(self.win, text=self.param2label)
         self.param2text.place(x=self.w * 0.9, y=self.h * 0.57)
+        """
         
+        # Driving params (treat as global params)
+        self.F = 0.0
+        self.omega_F = 0.0
+        self.driving_text = tk.Label(self.win, text="Parameters of the driving force; F(t) = F.sin(omega_F.t)")
+        self.driving_text.place(x=self.w * 0.4, y=self.h * 0.76)
         
+        self.F_slider = tk.Scale(self.win, from_=0, to=10, resolution=0.05, orient=tk.HORIZONTAL, length=self.h*0.54, command=self.refresh_global_param, label="F")
+        self.F_slider.place(x=self.w * 0.4, y=self.h*0.79)
+        self.F_slider.update()
+        
+        self.F_omega_slider = tk.Scale(self.win, from_=0, to=10, resolution=0.05, orient=tk.HORIZONTAL, length=self.h*0.54, command=self.refresh_global_param, label="omega_F")
+        self.F_omega_slider.place(x=self.w * 0.4, y=self.h*0.86)
+        self.F_omega_slider.update()
+        
+        self.damping_analysis_btn = tk.Button(self.win,text='Damping analysis',command=self.damping_analysis_btn_listener, width = 14)
+        self.damping_analysis_btn.place(x=self.w * 0.4, y=self.h * 0.93)
+        self.damping_analysis_btn.update()
+        
+        self.damp_progress_label = tk.Label(self.win, text="No damping analysis in progress")
+        self.damp_progress_label.place(x=self.w * 0.5, y=self.h * 0.94)
         
         #Parameter map radiobuttons
         self.param_map_label = tk.Label(self.win, text="Select dynamic variables")
@@ -140,25 +167,49 @@ class MyGUI:
         #Dynamic parameters
         self.t = 0.0
         #self.dt = 0.01
-        self.dynamic_param_label = tk.Label(self.win, text="Values of dynamic variables")
+        self.dynamic_param_label = tk.Label(self.win, text="Values of relevant variables")
         self.dynamic_param_label.place(x=self.w * 0.16, y=self.h * 0.62)
+        self.static_param1_label = tk.Label(self.win, text="theta 1 = 0.0")
+        self.static_param1_label.place(x=self.w * 0.17, y=self.h * 0.65)
+        self.static_param2_label = tk.Label(self.win, text="omega 1 = 0.0")
+        self.static_param2_label.place(x=self.w * 0.17, y=self.h * 0.68)
         self.dynamic_param1_label = tk.Label(self.win, text="theta 2 = 0.0")
-        self.dynamic_param1_label.place(x=self.w * 0.17, y=self.h * 0.65)
+        self.dynamic_param1_label.place(x=self.w * 0.17, y=self.h * 0.71)
         self.dynamic_param2_label = tk.Label(self.win, text="omega 2 = 0.0")
-        self.dynamic_param2_label.place(x=self.w * 0.17, y=self.h * 0.68)
+        self.dynamic_param2_label.place(x=self.w * 0.17, y=self.h * 0.74)
+        self.t_label = tk.Label(self.win, text="      t = 0.0")
+        self.t_label.place(x=self.w * 0.17, y=self.h * 0.77)
         
         #Action buttons (start iterating, save plot)
         self.play = False
         self.is_writing = False
-        self.tick_btn = tk.Button(self.win,text='Tick',command=self.tick_btn_listener, width = int(np.floor(self.w * 0.01)))
-        self.tick_btn.place(x=self.w * 0.16, y=self.h * 0.71)
+        self.tick_btn = tk.Button(self.win,text='Tick',command=self.tick_btn_listener, width = 8)
+        self.tick_btn.place(x=self.w * 0.16, y=self.h * 0.80)
         self.tick_btn.update()
-        self.play_btn = tk.Button(self.win,text='Play',command=self.play_btn_listener, width = int(np.floor(self.w * 0.01)))
-        self.play_btn.place(x=self.w * 0.16, y=self.h * 0.75)
+        self.play_btn = tk.Button(self.win,text='Play',command=self.play_btn_listener, width = 8)
+        self.play_btn.place(x=self.w * 0.16 + 84, y=self.h * 0.80)
         self.play_btn.update()
-        self.write_btn = tk.Button(self.win,text='Start writing',command=self.write_btn_listener, width = int(np.floor(self.w * 0.01)))
-        self.write_btn.place(x=self.w * 0.16, y=self.h * 0.79)
+        self.reset_btn = tk.Button(self.win,text='Reset',command=self.reset_btn_listener, width = 8)
+        self.reset_btn.place(x=self.w * 0.16 + 167, y=self.h * 0.80)
+        self.reset_btn.update()
+        
+        self.write_btn = tk.Button(self.win,text='Start writing',command=self.write_btn_listener, width = 14)
+        self.write_btn.place(x=self.w * 0.16, y=self.h * 0.84)
         self.write_btn.update()
+        #Characteristic properties
+        self.characterisation = False
+        self.prop_btn = tk.Button(self.win,text='Enable meta', command=self.prop_btn_listener, width = 14)
+        self.prop_btn.place(x=self.w * 0.16 + 125, y=self.h * 0.84)
+        self.prop_btn.update()
+        #T = total kinetic energy. V = total potential energy. E = total energy. div P = divergence of the phase portrait (Louville's theorem)
+        self.prop_T = tk.Label(self.win, text="T = 0.0")
+        self.prop_T.place(x=self.w * 0.17, y=self.h * 0.88)
+        self.prop_V = tk.Label(self.win, text="V = 0.0")
+        self.prop_V.place(x=self.w * 0.17, y=self.h * 0.91)
+        self.prop_E = tk.Label(self.win, text="E = 0.0")
+        self.prop_E.place(x=self.w * 0.17, y=self.h * 0.94)
+        self.prop_div = tk.Label(self.win, text="div P = 0.0")
+        self.prop_div.place(x=self.w * 0.17, y=self.h * 0.97)
         
         #Global parameter sliders
         self.m_1 = 1.0
@@ -167,20 +218,20 @@ class MyGUI:
         self.l_2 = 1.0
         self.g = 9.8
         self.global_change = False
-        self.m_1_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.4, command=self.refresh_global_param, label="m_1")
-        self.m_1_slider.place(x=self.w * 0.5, y=self.h * 0.62)
+        self.m_1_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.22, command=self.refresh_global_param, label="m_1")
+        self.m_1_slider.place(x=self.w * 0.75, y=self.h * 0.62)
         self.m_1_slider.set(1.0)
-        self.m_2_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.4, command=self.refresh_global_param, label="m_2")
-        self.m_2_slider.place(x=self.w * 0.5, y=self.h * 0.69)
+        self.m_2_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.22, command=self.refresh_global_param, label="m_2")
+        self.m_2_slider.place(x=self.w * 0.75, y=self.h * 0.69)
         self.m_2_slider.set(1.0)
-        self.l_1_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.4, command=self.refresh_global_param, label="l_1")
-        self.l_1_slider.place(x=self.w * 0.5, y=self.h * 0.76)
+        self.l_1_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.22, command=self.refresh_global_param, label="l_1")
+        self.l_1_slider.place(x=self.w * 0.75, y=self.h * 0.76)
         self.l_1_slider.set(1.0)
-        self.l_2_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.4, command=self.refresh_global_param, label="l_2")
-        self.l_2_slider.place(x=self.w * 0.5, y=self.h * 0.83)
+        self.l_2_slider = tk.Scale(self.win, from_=0.1, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.22, command=self.refresh_global_param, label="l_2")
+        self.l_2_slider.place(x=self.w * 0.75, y=self.h * 0.83)
         self.l_2_slider.set(1.0)
-        self.g_slider = tk.Scale(self.win, from_=0.0, to=20.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.4, command=self.refresh_global_param, label="g")
-        self.g_slider.place(x=self.w * 0.5, y=self.h * 0.9)
+        self.g_slider = tk.Scale(self.win, from_=0.0, to=20.0, resolution=0.1, orient=tk.HORIZONTAL, length=self.w*0.22, command=self.refresh_global_param, label="g")
+        self.g_slider.place(x=self.w * 0.75, y=self.h * 0.9)
         self.g_slider.set(9.8)
         
         #Open output text file
@@ -194,14 +245,18 @@ class MyGUI:
         #Trigger startup
         self.phase_portrait(0.0, 0.0)
         
+        #Install closing handler protocol
+        self.win.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
         #Start listening for events
         
         self.win.mainloop()
 
     #------------------------------------------------------- 
-    def phase_portrait(self, my_param1=-1, my_param2=-1):
+    def phase_portrait(self, static_param1, static_param2):
         
-        cur_dynam_param1, cur_dynam_param2 = self.set_static_param(self.param1.get(), self.param2.get())
+        #THIS INTRODUCES A MASSIVE ERROR
+        cur_dynam_param1, cur_dynam_param2 = self.set_static_param(static_param1, static_param2)
         self.ax.clear()
         self.ax.set_xlabel(self.x_lab)
         self.ax.set_ylabel(self.y_lab)
@@ -251,26 +306,32 @@ class MyGUI:
         self.ax.plot(cur_dynam_param1, cur_dynam_param2, 'x')
         self.fig.tight_layout()
         self.canvas.draw()
+        
+        #Characterisation
+        if self.characterisation:
+            self.characterize()
+        
         return 0,5
     
     def refreshParam(self, new_val=1.0):
         #This method is called whenever any of the params change. new_val is therefore useless
         self.phase_portrait(self.param1.get(), self.param2.get())
-        #print(self.theta_1)
     
     def refresh_global_param(self, new_val=0.0):
         #An umbrella method for global param sliders
         self.global_change = True
-        self.m_1 = self.m_1_slider.get()
-        self.m_2 = self.m_2_slider.get()
-        self.l_1 = self.l_1_slider.get()
-        self.l_2 = self.l_2_slider.get()
-        self.g   = self.g_slider.get()
+        self.m_1     = self.m_1_slider.get()
+        self.m_2     = self.m_2_slider.get()
+        self.l_1     = self.l_1_slider.get()
+        self.l_2     = self.l_2_slider.get()
+        self.g       = self.g_slider.get()
+        self.F       = self.F_slider.get()
+        self.omega_F = self.F_omega_slider.get()
         self.refreshParam()
     
     def on_click(self, event):
         if event.inaxes is not None:
-            print(event.xdata, event.ydata)
+            #print(event.xdata, event.ydata)
             self.set_dynamic_param(event.xdata, event.ydata)
         else:
             print('Clicked ouside axes bounds but inside plot self.window')
@@ -280,106 +341,130 @@ class MyGUI:
         if new_param_map == 0:
             self.x_lab = "theta_1"
             self.y_lab = "omega_1"
-            self.param1label = "theta_2"
-            self.param2label = "omega_2"
+            self.param1['label'] = "theta_2"
+            self.param2['label'] = "omega_2"
             self.param1.set(self.theta_2)
             self.param2.set(self.omega_2)
         if new_param_map == 1:
             self.x_lab = "theta_1"
             self.y_lab = "theta_2"
-            self.param1label = "omega_1"
-            self.param2label = "omega_2"
+            self.param1['label'] = "omega_1"
+            self.param2['label'] = "omega_2"
             self.param1.set(self.omega_1)
             self.param2.set(self.omega_2)
         if new_param_map == 2:
             self.x_lab = "theta_1"
             self.y_lab = "omega_2"
-            self.param1label = "theta_2"
-            self.param2label = "omega_1"
+            self.param1['label'] = "theta_2"
+            self.param2['label'] = "omega_1"
             self.param1.set(self.theta_2)
             self.param2.set(self.omega_1)
         if new_param_map == 3:
             self.x_lab = "theta_2"
             self.y_lab = "omega_1"
-            self.param1label = "theta_1"
-            self.param2label = "omega_2"
+            self.param1['label'] = "theta_1"
+            self.param2['label'] = "omega_2"
             self.param1.set(self.theta_1)
             self.param2.set(self.omega_2)
         if new_param_map == 4:
             self.x_lab = "omega_1"
             self.y_lab = "omega_2"
-            self.param1label = "theta_1"
-            self.param2label = "theta_2"
+            self.param1['label'] = "theta_1"
+            self.param2['label'] = "theta_2"
             self.param1.set(self.theta_1)
             self.param2.set(self.theta_2)
         if new_param_map == 5:
             self.x_lab = "theta_2"
             self.y_lab = "omega_2"
-            self.param1label = "theta_1"
-            self.param2label = "omega_1"
+            self.param1['label'] = "theta_1"
+            self.param2['label'] = "omega_1"
             self.param1.set(self.theta_1)
             self.param2.set(self.omega_1)
     
     def change_param_map(self):
         self.set_param_map(self.param_map_var.get())
-        self.param1text['text'] = self.param1label
-        self.param2text['text'] = self.param2label
-        dynam_1, dynam_2 = self.set_static_param()
+        dynam_1, dynam_2 = self.set_static_param(self.param1.get(), self.param2.get())
         self.dynamic_param1_label['text'] = self.x_lab + " = " + str(dynam_1)
         self.dynamic_param2_label['text'] = self.y_lab + " = " + str(dynam_2)
         self.refreshParam()
     
-    def set_static_param(self, val_1, val_2, backtrack = False):
-        if backtrack:
-            self.param1.set(val_1)
-            self.param2.set(val_2)
+    def set_static_param(self, val_1, val_2, backtrack = True):
+        #if backtrack:
+            #self.param1.set(val_1)
+            #self.param2.set(val_2)
         if self.param_map == 0:
             self.theta_2 = val_1
             self.omega_2 = val_2
+            self.static_param1_label['text'] = "theta_2 = " + str(val_1)
+            self.static_param2_label['text'] = "omega_2 = " + str(val_2)
             return self.theta_1, self.omega_1
         if self.param_map == 1:
             self.omega_1 = val_1
             self.omega_2 = val_2
+            self.static_param1_label['text'] = "omega_1 = " + str(val_1)
+            self.static_param2_label['text'] = "omega_2 = " + str(val_2)
             return self.theta_1, self.theta_2
         if self.param_map == 2:
             self.theta_2 = val_1
             self.omega_1 = val_2
+            self.static_param1_label['text'] = "theta_2 = " + str(val_1)
+            self.static_param2_label['text'] = "omega_1 = " + str(val_2)
             return self.theta_1, self.omega_2
         if self.param_map == 3:
             self.theta_1 = val_1
             self.omega_2 = val_2
+            self.static_param1_label['text'] = "theta_1 = " + str(val_1)
+            self.static_param2_label['text'] = "omega_2 = " + str(val_2)
             return self.theta_2, self.omega_1
         if self.param_map == 4:
             self.theta_1 = val_1
             self.theta_2 = val_2
+            self.static_param1_label['text'] = "theta_1 = " + str(val_1)
+            self.static_param2_label['text'] = "theta_2 = " + str(val_2)
             return self.omega_1, self.omega_2
         if self.param_map == 5:
             self.theta_1 = val_1
             self.omega_1 = val_2
+            self.static_param1_label['text'] = "theta_1 = " + str(val_1)
+            self.static_param2_label['text'] = "omega_1 = " + str(val_2)
             return self.theta_2, self.omega_2
     
     def set_dynamic_param(self, val_1, val_2):
+        static_param1 = 0.0
+        static_param2 = 0.0
         if self.param_map == 0:
             self.theta_1 = val_1
             self.omega_1 = val_2
+            static_param1 = self.theta_2
+            static_param2 = self.omega_2
         if self.param_map == 1:
             self.theta_1 = val_1
             self.theta_2 = val_2
+            static_param1 = self.omega_1
+            static_param2 = self.omega_2
         if self.param_map == 2:
             self.theta_1 = val_1
             self.omega_2 = val_2
+            static_param1 = self.theta_2
+            static_param2 = self.omega_1
         if self.param_map == 3:
             self.theta_2 = val_1
             self.omega_1 = val_2
+            static_param1 = self.theta_1
+            static_param2 = self.omega_2
         if self.param_map == 4:
             self.omega_1 = val_1
             self.omega_2 = val_2
+            static_param1 = self.theta_1
+            static_param2 = self.theta_2
         if self.param_map == 5:
             self.theta_2 = val_1
             self.omega_2 = val_2
+            static_param1 = self.theta_1
+            static_param2 = self.omega_1
         self.dynamic_param1_label['text'] = self.x_lab + " = " + str(val_1)
         self.dynamic_param2_label['text'] = self.y_lab + " = " + str(val_2)
-        self.refreshParam()
+        self.phase_portrait(static_param1, static_param2)
     
     def get_dynamic_res(self, val_1, val_2):
         if self.param_map == 0:
@@ -422,6 +507,7 @@ class MyGUI:
     
     def tick_btn_listener(self):
         t1, o1, t2, o2 = self.step()
+        self.t_label['text'] = "      t = " + str(round(self.t, 3))
         """self.theta_1 = t1
         self.omega_1 = o1
         self.theta_2 = t2
@@ -439,19 +525,19 @@ class MyGUI:
         if self.param_map == 0:
             self.set_static_param(t2, o2, True)
             self.set_dynamic_param(t1, o1)
-        if self.param_map == 1:
+        elif self.param_map == 1:
             self.set_static_param(o1, o2, True)
             self.set_dynamic_param(t1, t2)
-        if self.param_map == 2:
+        elif self.param_map == 2:
             self.set_static_param(t2, o1, True)
             self.set_dynamic_param(t1, o2)
-        if self.param_map == 3:
+        elif self.param_map == 3:
             self.set_static_param(t1, o2, True)
             self.set_dynamic_param(t2, o1)
-        if self.param_map == 4:
+        elif self.param_map == 4:
             self.set_static_param(t1, t2, True)
             self.set_dynamic_param(o1, o2)
-        if self.param_map == 5:
+        elif self.param_map == 5:
             self.set_static_param(t1, o1, True)
             self.set_dynamic_param(t2, o2)
         #self.refreshParam()
@@ -470,6 +556,19 @@ class MyGUI:
             self.play_btn['text'] = 'Pause'
             self.play = True
             self.play_func()
+    
+    def reset_btn_listener(self):
+        self.set_static_param(0.0, 0.0)
+        self.set_dynamic_param(0.0, 0.0)
+        self.param1.set(0.0)
+        self.param2.set(0.0)
+        self.t = 0.0
+        if self.play:
+            self.tick_btn.configure(state = "normal")
+            self.play_btn['text'] = 'Play'
+            self.play = False
+            self.t -= 0.01
+        self.phase_portrait(0.0, 0.0)
         
     def write_btn_listener(self):
         if self.is_writing == True:
@@ -480,11 +579,66 @@ class MyGUI:
             #Change the label
             self.write_btn['text'] = 'Stop writing'
             self.is_writing = True
+        
+    def prop_btn_listener(self):
+        if self.characterisation == True:
+            #Change the label
+            self.prop_btn['text'] = 'Enable meta'
+            self.characterisation = False
+        elif self.characterisation == False:
+            #Change the label
+            self.prop_btn['text'] = 'Disable meta'
+            self.characterisation = True
     
     def play_func(self):
         self.tick_btn_listener()
         if self.play:
-            self.win.after(10, self.play_func)
+            self.win.after(1, self.play_func)
+    
+    def damping_analysis_btn_listener(self):
+        print("Damping analysis started with the following parameters:")
+        print("F = ", self.F)
+        print("omega_F_max = ", self.omega_F)
+        print("m_1 = ", self.m_1, "; l_1 = ", self.l_1, "m_2 = ", self.m_2, "; l_2 = ", self.l_2, "; g = ", self.g)
+        
+        
+        self.damp_output_file = open('damping_analysis_output.csv', mode='w')
+        self.damp_output_writer = csv.writer(self.damp_output_file,  delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        self.damp_output_writer.writerow( ['omega_F', 'max_theta', 't'])
+        
+        omega_space = np.linspace(0.0, self.omega_F, 100)
+        max_t = 30.0
+        
+        self.damp_progress_label['text'] = "Analysis in progress: 0%"
+        percentage_done = 0
+        for omega_val in omega_space:
+            self.t = 0.0
+            self.set_static_param(0.0, 0.0)
+            self.set_dynamic_param(0.0, 0.0)
+            self.omega_F = omega_val
+            max_theta = 0.0
+            max_theta_t = 0.0
+            while self.t < max_t:
+                t1, o1, t2, o2 = self.step()
+                self.theta_1 = t1
+                self.omega_1 = o1
+                self.theta_2 = t2
+                self.omega_2 = o2
+            
+                if t1 > max_theta:
+                    max_theta = t1
+                    max_theta_t = self.t
+            #print(omega_val, max_theta, max_theta_t)
+            percentage_done += 1
+            self.damp_progress_label['text'] = "Analysis in progress: " + str(percentage_done) + "%"
+            self.damp_output_writer.writerow([omega_val, max_theta, max_theta_t])
+        
+        self.damp_output_file.close()
+        
+    def on_closing(self):
+        self.data_output_file.close()
+        self.param_output_file.close()
+        self.win.destroy()
     
     #-------------- PHYSICS METHODS -----------------------
     
@@ -492,13 +646,13 @@ class MyGUI:
     #    
     
     def get_epsilon_1(self, my_theta_1, my_omega_1, my_theta_2, my_omega_2):
-        numerator = self.m_2*self.l_1*np.sin(my_theta_1-my_theta_2)*(my_omega_2**2+my_omega_1**2*np.cos(my_theta_1-my_theta_2))+self.g*(self.m_1*np.sin(my_theta_1)+self.m_2*np.cos(my_theta_2)*np.sin(my_theta_1-my_theta_2))
-        denominator = self.l_1*(self.m_2*np.cos(my_theta_1-my_theta_2)*np.cos(my_theta_1-my_theta_2)-(self.m_1+self.m_2))
+        numerator = self.F*np.sin(self.omega_F * self.t) - self.m_2*np.sin(my_theta_1-my_theta_2)*(self.l_2*my_omega_2**2+self.l_1*my_omega_1**2*np.cos(my_theta_1-my_theta_2)) - self.g*(self.m_1*np.sin(my_theta_1)+self.m_2*np.cos(my_theta_2)*np.sin(my_theta_1-my_theta_2))
+        denominator = self.l_1*((self.m_1+self.m_2)-self.m_2*np.cos(my_theta_1-my_theta_2)*np.cos(my_theta_1-my_theta_2))
         return(numerator/denominator)
     
     def get_epsilon_2(self, my_theta_1, my_omega_1, my_theta_2, my_omega_2):
-        numerator = (self.m_1+self.m_2)*self.l_1*my_omega_1**2+self.m_2*self.l_2*my_omega_2**2*np.cos(my_theta_1-my_theta_2)+(self.m_1+self.m_2)*self.g*np.cos(my_theta_1)*np.sin(my_theta_1-my_theta_2)
-        denominator = self.l_2*((self.m_1+self.m_2)-self.m_2*np.cos(my_theta_1-my_theta_2)*np.cos(my_theta_1-my_theta_2))
+        numerator = self.F*np.sin(self.omega_F*self.t)*np.cos(my_theta_1-my_theta_2) - ((self.m_1+self.m_2)*self.l_1*my_omega_1**2+self.m_2*self.l_2*my_omega_2**2*np.cos(my_theta_1-my_theta_2)+(self.m_1+self.m_2)*self.g*np.cos(my_theta_1))*np.sin(my_theta_1-my_theta_2)
+        denominator = self.l_2*(self.m_2*np.cos(my_theta_1-my_theta_2)*np.cos(my_theta_1-my_theta_2) - (self.m_1+self.m_2))
         return(numerator/denominator)
     
     def step(self):
@@ -536,6 +690,17 @@ class MyGUI:
             self.data_output_writer.writerow([self.t, theta_1_new, omega_1_new, theta_2_new, omega_2_new])
         
         return(theta_1_new, omega_1_new, theta_2_new, omega_2_new)
+    
+    def characterize(self):
+        T_1 = 0.5 * (self.m_1 + self.m_2) * self.l_1 * self.l_1 * self.omega_1 * self.omega_1
+        T_2 = 0.5 * self.m_2 * self.l_2 * self.l_2 * self.omega_2 * self.omega_2
+        T_3 = self.m_2 * self.l_1 * self.l_2 * self.omega_1 * self.omega_2 * np.cos(self.theta_2 - self.theta_1)
+        cur_T = T_1 + T_2 + T_3
+        cur_V = - (self.m_1 + self.m_2) * self.g * self.l_1 * np.cos(self.theta_1) - self.m_2 * self.g * self.l_2 * np.cos(self.theta_2)
+        
+        self.prop_T['text'] = "T = " + str(cur_T)
+        self.prop_V['text'] = "V = " + str(cur_V)
+        self.prop_E['text'] = "E = " + str(cur_T + cur_V)
 
 
 #------------------------------------------------------------------        
