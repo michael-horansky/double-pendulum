@@ -18,6 +18,10 @@ from matplotlib.colors import Normalize
 
 import csv
 
+import io
+import cv2
+from cv2 import VideoWriter, VideoWriter_fourcc
+
 def quiver_portrait(x_space, v_space, a_func, ax):
     v_results = []
     a_results = []
@@ -46,6 +50,16 @@ def line_integral(r_0,r_1,func):
         my_res += cur_res
         my_err += cur_err
     return((my_res, my_err))
+
+def fig_to_img(fig, dpi=180):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi)
+    buf.seek(0)
+    img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+    buf.close()
+    img = cv2.imdecode(img_arr, 1)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
 
 theta_space = np.linspace(-7.0, 7.0, 40)
 omega_space = np.linspace(10.0, -10.0, 30)
@@ -76,7 +90,7 @@ class MyGUI:
         #Create layout
 
         self.dpi = 100
-        self.fig = Figure(figsize=(self.w*0.78/self.dpi, self.h*0.6/self.dpi), dpi=self.dpi)
+        self.fig = Figure(figsize=(self.w*0.58/self.dpi, self.h*0.6/self.dpi), dpi=self.dpi)
         self.ax = self.fig.add_subplot(111)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.win)  # A tk.Draself.wingArea.
@@ -90,6 +104,9 @@ class MyGUI:
         self.omega_1 = 0.0
         self.theta_2 = 0.0
         self.omega_2 = 0.0
+        
+        self.traces = []
+        self.font = cv2.FONT_HERSHEY_SIMPLEX
         
         """self.param1 = tk.Scale(self.win, from_=-10, to=10, resolution=0.05, length=self.h*0.54, command=self.refreshParam)
         self.param1.place(x=self.w * 0.78, y=self.h*0.01)
@@ -242,31 +259,77 @@ class MyGUI:
         self.data_output_writer.writerow( ['time', 'theta_1', 'omega_1', 'theta_2', 'omega_2'])
         self.param_output_writer.writerow(['time', 'm_1', 'm_2', 'l_1', 'l_2', 'g'])
         
-        #Trigger startup
-        self.phase_portrait(0.0, 0.0)
+        #Visual output canvas
+        self.is_drawing = False
+        self.is_tracing = True
+        self.o_c_w = int(self.w * 0.4)
+        self.o_c_h = int(self.h * 0.6)
+        self.o_c_x = int(self.w * 0.99 - self.o_c_w)
+        self.o_c_y = int(self.h * 0.01)
+        self.output_canvas = tk.Canvas(self.win, width = self.o_c_w, height = self.o_c_h)
+        self.output_canvas.place(x = self.o_c_x, y = self.o_c_y)
+        self.drawing_scale = (self.o_c_h / 2.2) / (self.l_1 + self.l_2)
+        self.x0 = self.o_c_w / 2.0
+        self.y0 = self.o_c_h / 2.0
+        x1 = self.x0 + self.l_1 * self.drawing_scale * np.sin(self.theta_1)
+        y1 = self.y0 + self.l_1 * self.drawing_scale * np.cos(self.theta_1)
+        x2 = x1 + self.l_2 * self.drawing_scale * np.sin(self.theta_2)
+        y2 = y1 + self.l_2 * self.drawing_scale * np.cos(self.theta_2)
+        self.rod1 = self.output_canvas.create_line(self.x0, self.y0, x1, y1)
+        self.rod2 = self.output_canvas.create_line(x1, y1, x2, y2)
+        self.mass1 = self.output_canvas.create_oval(x1 - self.m_1, y1 - self.m_1, x1 + self.m_1, y1 + self.m_1, fill = "red")
+        self.mass2 = self.output_canvas.create_oval(x2 - self.m_2, y2 - self.m_2, x2 + self.m_2, y2 + self.m_2, fill = "red")
+        
+        self.draw_btn = tk.Button(self.win,text='Enable drawing', command=self.draw_btn_listener, width = 14)
+        self.draw_btn.place(x= self.w * 0.99 - self.o_c_w, y=self.h * 0.01)
+        self.draw_btn.update()
+        self.tracing_btn = tk.Button(self.win,text='Disable tracing', command=self.tracing_btn_listener, width = 14)
+        self.tracing_btn.place(x= self.w * 0.99 - self.o_c_w + 125, y=self.h * 0.01)
+        self.tracing_btn.update()
+        self.trace_erase_btn = tk.Button(self.win,text='Erase tracing', command=self.trace_erase_btn_listener, width = 14)
+        self.trace_erase_btn.place(x= self.w * 0.99 - self.o_c_w + 250, y=self.h * 0.01)
+        self.trace_erase_btn.update()
+        self.new_output_btn = tk.Button(self.win,text='New output', command=self.new_output_btn_listener, width = 14)
+        self.new_output_btn.place(x= self.w * 0.99 - self.o_c_w + 375, y=self.h * 0.01)
+        self.new_output_btn.update()
+        
+        #OpenCV visual output luggage
+        self.FPS = 24
+        self.fourcc = VideoWriter_fourcc(*'MP42')
+        self.number_of_videos = 1
+        self.video = VideoWriter('./double_pendulum_video_output' + str(self.number_of_videos) + '.avi', self.fourcc, float(self.FPS), (self.w, self.h))
+        
+        self.output_frames = []
+        self.layout_frame = np.zeros((self.h, self.w, 3), dtype=np.uint8) + 255
+        self.trace_frame = np.zeros((self.o_c_h, self.o_c_w, 3), dtype=np.uint8) + 255
         
         #Install closing handler protocol
         self.win.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        #Trigger startup
+        self.phase_portrait(0.0, 0.0)
+        
         
         #Start listening for events
         
         self.win.mainloop()
 
-    #------------------------------------------------------- 
+    #--------------- OUTPUT METHODS ----------------------
+    
     def phase_portrait(self, static_param1, static_param2):
         
-        #THIS INTRODUCES A MASSIVE ERROR
         cur_dynam_param1, cur_dynam_param2 = self.set_static_param(static_param1, static_param2)
         self.ax.clear()
         self.ax.set_xlabel(self.x_lab)
         self.ax.set_ylabel(self.y_lab)
-        #q = quiver_portrait(theta_space, omega_space, self.double_pend_f, self.ax)
+        x_ran = 5.0
+        y_ran = 10.0
         if self.style != 2:
-            x_space = np.linspace(-7.0, 7.0, 40)
-            y_space = np.linspace(10.0, -10.0, 30)
+            x_space = np.linspace(cur_dynam_param1 - x_ran, cur_dynam_param1 + x_ran, 40)
+            y_space = np.linspace(cur_dynam_param2 + y_ran, cur_dynam_param2 - y_ran, 30)
         else:
-            x_space = np.linspace(-7.0, 7.0, 80)
-            y_space = np.linspace(10.0, -10.0, 60)
+            x_space = np.linspace(cur_dynam_param1 - x_ran, cur_dynam_param1 + x_ran, 80)
+            y_space = np.linspace(cur_dynam_param2 + y_ran, cur_dynam_param2 - y_ran, 60)
         x_results = []
         y_results = []
         if self.style != 0:
@@ -307,11 +370,77 @@ class MyGUI:
         self.fig.tight_layout()
         self.canvas.draw()
         
-        #Characterisation
-        if self.characterisation:
-            self.characterize()
+        #Characterisation and drawing
+        if self.characterisation or self.is_drawing:
+            cur_T, cur_V, cur_E = self.characterize()
+        if self.is_drawing:
+            self.draw_self(cur_T, cur_V, cur_E)
         
         return 0,5
+
+    def draw_self(self, cur_T, cur_V, cur_E):
+        self.output_canvas.delete(self.rod1)
+        self.output_canvas.delete(self.mass1)
+        self.output_canvas.delete(self.rod2)
+        self.output_canvas.delete(self.mass2)
+        x1 = self.x0 + self.l_1 * self.drawing_scale * np.sin(self.theta_1)
+        y1 = self.y0 + self.l_1 * self.drawing_scale * np.cos(self.theta_1)
+        x2 = x1 + self.l_2 * self.drawing_scale * np.sin(self.theta_2)
+        y2 = y1 + self.l_2 * self.drawing_scale * np.cos(self.theta_2)
+        if self.is_tracing:
+            self.traces.append(self.output_canvas.create_oval(x2 - 1, y2 - 1, x2 + 1, y2 + 1, fill = "blue")) #tracer
+        self.rod1 = self.output_canvas.create_line(self.x0, self.y0, x1, y1)
+        self.rod2 = self.output_canvas.create_line(x1, y1, x2, y2)
+        self.mass1 = self.output_canvas.create_oval(x1 - self.m_1_r, y1 - self.m_1_r, x1 + self.m_1_r, y1 + self.m_1_r, fill = "red")
+        self.mass2 = self.output_canvas.create_oval(x2 - self.m_2_r, y2 - self.m_2_r, x2 + self.m_2_r, y2 + self.m_2_r, fill = "red")
+        #OpenCV output
+        cur_frame = self.layout_frame.copy()
+        cur_frame[self.o_c_y:self.o_c_y+self.o_c_h, self.o_c_x:self.o_c_x+self.o_c_w] = self.trace_frame
+        
+        new_img = fig_to_img(self.fig, self.dpi)
+        width = len(new_img[0])
+        height = len(new_img)
+        cur_frame[int(self.h * 0.01):int(self.h * 0.01)+height, 0:0+width] = new_img
+        
+        offset_x = self.w * 0.99 - self.o_c_w
+        offset_y = self.h * 0.01
+        
+        cv2.line(cur_frame, (int(offset_x + self.x0), int(offset_y + self.y0)), (int(offset_x + x1), int(offset_y + y1)), (0,0,0), 2)
+        cv2.line(cur_frame, (int(offset_x + x1), int(offset_y + y1)), (int(offset_x + x2), int(offset_y + y2)), (0,0,0), 2)
+        
+        cv2.circle(cur_frame, (int(offset_x + x1), int(offset_y + y1)), int(self.m_1_r), (0,0,0), 2 )
+        cv2.circle(cur_frame, (int(offset_x + x1), int(offset_y + y1)), int(self.m_1_r), (0,0,255), -1 )
+        cv2.circle(cur_frame, (int(offset_x + x2), int(offset_y + y2)), int(self.m_2_r), (0,0,0), 2 )
+        cv2.circle(cur_frame, (int(offset_x + x2), int(offset_y + y2)), int(self.m_2_r), (0,0,255), -1 )
+        
+        if self.is_tracing:
+            cv2.circle(self.trace_frame, (int(x2), int(y2)), 2, (255,0,0), -1 )
+        
+        text_offset_x = int(self.w * 0.05)
+        text_offset_y = int(self.h * 0.65) + 20
+        cv2.putText(cur_frame, "t = " + str(round(self.t, 3)), (text_offset_x, text_offset_y), self.font, 1, (0,0,0))
+        text_offset_x += 300
+        cv2.putText(cur_frame, "T = " + str(round(cur_T, 3)), (text_offset_x, text_offset_y + 80), self.font, 1, (0,0,0))
+        cv2.putText(cur_frame, "V = " + str(round(cur_V, 3)), (text_offset_x, text_offset_y + 120), self.font, 1, (0,0,0))
+        cv2.putText(cur_frame, "E = " + str(round(cur_E, 3)), (text_offset_x, text_offset_y + 160), self.font, 1, (0,0,0))
+        text_offset_x += 300        
+        cv2.putText(cur_frame, "theta_1 = " + str(round(self.theta_1, 3)), (text_offset_x, text_offset_y), self.font, 1, (0,0,0))
+        cv2.putText(cur_frame, "omega_1 = " + str(round(self.omega_1, 3)), (text_offset_x, text_offset_y + 40), self.font, 1, (0,0,0))
+        cv2.putText(cur_frame, "theta_2 = " + str(round(self.theta_2, 3)), (text_offset_x, text_offset_y + 80), self.font, 1, (0,0,0))
+        cv2.putText(cur_frame, "omega_2 = " + str(round(self.omega_2, 3)), (text_offset_x, text_offset_y + 120), self.font, 1, (0,0,0))
+        
+        
+        self.output_frames.append(cur_frame)
+    
+    def release_video(self):
+        for frame in self.output_frames:
+            self.video.write(frame)
+        self.video.release()
+        
+        self.output_frames = []
+        self.trace_frame = np.zeros((self.h, self.w, 3), dtype=np.uint8) + 255
+    
+    #------------ PARAMETER MANAGEMENT --------------------
     
     def refreshParam(self, new_val=1.0):
         #This method is called whenever any of the params change. new_val is therefore useless
@@ -327,14 +456,50 @@ class MyGUI:
         self.g       = self.g_slider.get()
         self.F       = self.F_slider.get()
         self.omega_F = self.F_omega_slider.get()
-        self.refreshParam()
-    
-    def on_click(self, event):
-        if event.inaxes is not None:
-            #print(event.xdata, event.ydata)
-            self.set_dynamic_param(event.xdata, event.ydata)
-        else:
-            print('Clicked ouside axes bounds but inside plot self.window')
+        
+        #Drawing scale changed
+        old_scale = self.drawing_scale
+        #new_traces = []
+        self.drawing_scale = (self.o_c_h / 2.2) / (self.l_1 + self.l_2)
+        for my_trace in self.traces:
+            self.output_canvas.scale(my_trace, self.x0, self.y0, self.drawing_scale / old_scale, self.drawing_scale / old_scale)
+        self.m_1_r = np.sqrt(self.m_1 * 10.0)
+        self.m_2_r = np.sqrt(self.m_2 * 10.0)
+        self.layout_frame = np.zeros((self.h, self.w, 3), dtype=np.uint8) + 255
+        text_offset_x = int(self.w * 0.05)
+        text_offset_y = int(self.h * 0.65) + 60
+        cv2.putText(self.layout_frame, "m_1 = " + str(self.m_1), (text_offset_x, text_offset_y), self.font, 1, (0,0,0))
+        cv2.putText(self.layout_frame, "m_2 = " + str(self.m_2), (text_offset_x, text_offset_y + 40), self.font, 1, (0,0,0))
+        cv2.putText(self.layout_frame, "l_1 = " + str(self.l_1), (text_offset_x, text_offset_y + 80), self.font, 1, (0,0,0))
+        cv2.putText(self.layout_frame, "l_2 = " + str(self.l_2), (text_offset_x, text_offset_y + 120), self.font, 1, (0,0,0))
+        cv2.putText(self.layout_frame, "g = " + str(self.g), (text_offset_x, text_offset_y + 160), self.font, 1, (0,0,0))
+        text_offset_x += 300
+        cv2.putText(self.layout_frame, "F = " + str(self.F), (text_offset_x, text_offset_y - 40), self.font, 1, (0,0,0))
+        cv2.putText(self.layout_frame, "omega_F = " + str(self.omega_F), (text_offset_x, text_offset_y), self.font, 1, (0,0,0))
+        
+        static_param1 = 0.0
+        static_param2 = 0.0
+        if self.param_map == 0:
+            static_param1 = self.theta_2
+            static_param2 = self.omega_2
+        elif self.param_map == 1:
+            static_param1 = self.omega_1
+            static_param2 = self.omega_2
+        elif self.param_map == 2:
+            static_param1 = self.theta_2
+            static_param2 = self.omega_1
+        elif self.param_map == 3:
+            static_param1 = self.theta_1
+            static_param2 = self.omega_2
+        elif self.param_map == 4:
+            static_param1 = self.theta_1
+            static_param2 = self.theta_2
+        elif self.param_map == 5:
+            static_param1 = self.theta_1
+            static_param2 = self.omega_1
+        
+        if not self.play:
+            self.phase_portrait(static_param1, static_param2)
     
     def set_param_map(self, new_param_map):
         self.param_map = new_param_map
@@ -468,33 +633,21 @@ class MyGUI:
     
     def get_dynamic_res(self, val_1, val_2):
         if self.param_map == 0:
-            #self.theta_1 = self.val_1
-            #self.omega_1 = self.val_2
             x_res = val_2
             y_res = self.get_epsilon_1(val_1, val_2, self.theta_2, self.omega_2)
         if self.param_map == 1:
-            #self.theta_1 = self.val_1
-            #self.theta_2 = self.val_2
             x_res = self.omega_1
             y_res = self.omega_2
         if self.param_map == 2:
-            #self.theta_1 = self.val_1
-            #self.omega_2 = self.val_2
             x_res = self.omega_1
             y_res = self.get_epsilon_2(val_1, self.omega_1, self.theta_2, val_2)
         if self.param_map == 3:
-            #self.theta_2 = self.val_1
-            #self.omega_1 = self.val_2
             x_res = self.omega_2
             y_res = self.get_epsilon_1(self.theta_1, val_2, val_1, self.omega_2)
         if self.param_map == 4:
-            #self.omega_1 = self.val_1
-            #self.omega_2 = self.val_2
             x_res = self.get_epsilon_1(self.theta_1, val_1, self.theta_2, val_2)
             y_res = self.get_epsilon_2(self.theta_1, val_1, self.theta_2, val_2)
         if self.param_map == 5:
-            #self.theta_2 = self.val_1
-            #self.omega_2 = self.val_2
             x_res = val_2
             y_res = self.get_epsilon_2(self.theta_1, self.omega_1, val_1, val_2)
         return(x_res, y_res)
@@ -504,6 +657,13 @@ class MyGUI:
         self.refreshParam()
     
     #------------ SIMULATION LISTENERS --------------------
+    
+    def on_click(self, event):
+        if event.inaxes is not None:
+            #print(event.xdata, event.ydata)
+            self.set_dynamic_param(event.xdata, event.ydata)
+        else:
+            print('Clicked ouside axes bounds but inside plot self.window')
     
     def tick_btn_listener(self):
         t1, o1, t2, o2 = self.step()
@@ -590,6 +750,38 @@ class MyGUI:
             self.prop_btn['text'] = 'Disable meta'
             self.characterisation = True
     
+    def draw_btn_listener(self):
+        if self.is_drawing == True:
+            #Change the label
+            self.draw_btn['text'] = 'Enable drawing'
+            self.is_drawing = False
+        elif self.is_drawing == False:
+            #Change the label
+            self.draw_btn['text'] = 'Disable drawing'
+            self.is_drawing = True
+    
+    def tracing_btn_listener(self):
+        if self.is_tracing == True:
+            #Change the label
+            self.tracing_btn['text'] = 'Enable tracing'
+            self.is_tracing = False
+        elif self.is_tracing == False:
+            #Change the label
+            self.tracing_btn['text'] = 'Disable tracing'
+            self.is_tracing = True
+    
+    def trace_erase_btn_listener(self):
+        for my_trace in self.traces:
+            self.output_canvas.delete(my_trace)
+        self.traces = []
+        self.trace_frame = np.zeros((self.o_c_h, self.o_c_w, 3), dtype=np.uint8) + 255
+    
+    def new_output_btn_listener(self):
+        self.release_video()
+        self.number_of_videos += 1
+        self.video = VideoWriter('./double_pendulum_video_output' + str(self.number_of_videos) + '.avi', self.fourcc, float(self.FPS), (self.w, self.h))
+        
+    
     def play_func(self):
         self.tick_btn_listener()
         if self.play:
@@ -636,8 +828,14 @@ class MyGUI:
         self.damp_output_file.close()
         
     def on_closing(self):
+        #Close output files
         self.data_output_file.close()
         self.param_output_file.close()
+        
+        #Release the last OpenCV video
+        self.release_video()
+        
+        #Close down Tkinter
         self.win.destroy()
     
     #-------------- PHYSICS METHODS -----------------------
@@ -701,6 +899,8 @@ class MyGUI:
         self.prop_T['text'] = "T = " + str(cur_T)
         self.prop_V['text'] = "V = " + str(cur_V)
         self.prop_E['text'] = "E = " + str(cur_T + cur_V)
+        
+        return(cur_T, cur_V, cur_T + cur_V)
 
 
 #------------------------------------------------------------------        
