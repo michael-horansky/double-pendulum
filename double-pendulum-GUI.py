@@ -9,6 +9,7 @@ Created on Sun Nov  8 17:59:44 2020
 import tkinter as tk
 import numpy as np
 import scipy.integrate as spi
+import statistics
 
 from matplotlib.figure import Figure
 
@@ -21,6 +22,28 @@ import csv
 import io
 import cv2
 from cv2 import VideoWriter, VideoWriter_fourcc
+
+from pathlib import Path
+
+
+# ------------- BASIC FUNCTIONS -------------
+
+def nonzero_sign(x):
+    if x >= 0.0:
+        return(1)
+    else:
+        return(-1)
+
+def base_theta(x):
+    res = x
+    while res <= - np.pi:
+        res += 2.0 * np.pi
+    while res > np.pi:
+        res -= 2.0 * np.pi
+    return(res)
+
+
+
 
 def quiver_portrait(x_space, v_space, a_func, ax):
     v_results = []
@@ -68,8 +91,20 @@ omega_space = np.linspace(10.0, -10.0, 30)
 k = 0.0
 
 
+# --------------- CLASSES -------------
 
-
+class popupWindow(object):
+    def __init__(self,master):
+        top=self.top=tk.Toplevel(master)
+        self.l=tk.Label(top,text="Enter the filename (without extension)")
+        self.l.pack()
+        self.e=tk.Entry(top)
+        self.e.pack()
+        self.b=tk.Button(top,text='Submit',command=self.cleanup)
+        self.b.pack()
+    def cleanup(self):
+        self.value=self.e.get()
+        self.top.destroy()
 
 
 
@@ -138,6 +173,7 @@ class MyGUI:
         # Driving params (treat as global params)
         self.F = 0.0
         self.omega_F = 0.0
+        self.omega_F_range = 0.0
         self.driving_text = tk.Label(self.win, text="Parameters of the driving force; F(t) = F.sin(omega_F.t)")
         self.driving_text.place(x=self.w * 0.4, y=self.h * 0.76)
         
@@ -145,9 +181,12 @@ class MyGUI:
         self.F_slider.place(x=self.w * 0.4, y=self.h*0.79)
         self.F_slider.update()
         
-        self.F_omega_slider = tk.Scale(self.win, from_=0, to=10, resolution=0.05, orient=tk.HORIZONTAL, length=self.h*0.54, command=self.refresh_global_param, label="omega_F")
+        self.F_omega_slider = tk.Scale(self.win, from_=0, to=4.0, resolution=0.01, orient=tk.HORIZONTAL, length=self.w*0.15, command=self.refresh_global_param, label="omega_F")
         self.F_omega_slider.place(x=self.w * 0.4, y=self.h*0.86)
         self.F_omega_slider.update()
+        self.F_range_slider = tk.Scale(self.win, from_=0, to=2.5, resolution=0.05, orient=tk.HORIZONTAL, length=self.w*0.15, command=self.refresh_global_param, label="omega_F range")
+        self.F_range_slider.place(x=self.w * (0.4 + 0.15) + 5, y=self.h*0.86)
+        self.F_range_slider.update()
         
         self.damping_analysis_btn = tk.Button(self.win,text='Damping analysis',command=self.damping_analysis_btn_listener, width = 14)
         self.damping_analysis_btn.place(x=self.w * 0.4, y=self.h * 0.93)
@@ -155,6 +194,7 @@ class MyGUI:
         
         self.damp_progress_label = tk.Label(self.win, text="No damping analysis in progress")
         self.damp_progress_label.place(x=self.w * 0.5, y=self.h * 0.94)
+        
         
         #Parameter map radiobuttons
         self.param_map_label = tk.Label(self.win, text="Select dynamic variables")
@@ -180,6 +220,11 @@ class MyGUI:
             self.style_buttons.append(tk.Radiobutton(self.win, text=st_text, variable=self.style_var, value=st_val, command=self.change_style))
             self.style_buttons[-1].place(x=self.w * 0.01, y = self.h * (0.86 + i * 0.03))
         self.style_buttons[0].select()
+        
+        #Load previous static parameters
+        self.load_prev_params_btn = tk.Button(self.win,text='Load prev. params',command=self.load_prev_params_btn_listener, width = 14)
+        self.load_prev_params_btn.place(x=self.w * 0.01, y=self.h * 0.95)
+        self.load_prev_params_btn.update()
         
         #Dynamic parameters
         self.t = 0.0
@@ -294,7 +339,7 @@ class MyGUI:
         self.new_output_btn.update()
         
         #OpenCV visual output luggage
-        self.FPS = 24
+        self.FPS = 100
         self.fourcc = VideoWriter_fourcc(*'MP42')
         self.number_of_videos = 1
         self.video = VideoWriter('./double_pendulum_video_output' + str(self.number_of_videos) + '.avi', self.fourcc, float(self.FPS), (self.w, self.h))
@@ -306,8 +351,13 @@ class MyGUI:
         #Install closing handler protocol
         self.win.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+        self.theta_1 = 0.0
+        self.omega_1 = 3.0
+        self.theta_2 = -2.0
+        self.omega_2 = 0.0
+        
         #Trigger startup
-        self.phase_portrait(0.0, 0.0)
+        self.phase_portrait(self.theta_1, self.omega_1)
         
         
         #Start listening for events
@@ -449,13 +499,14 @@ class MyGUI:
     def refresh_global_param(self, new_val=0.0):
         #An umbrella method for global param sliders
         self.global_change = True
-        self.m_1     = self.m_1_slider.get()
-        self.m_2     = self.m_2_slider.get()
-        self.l_1     = self.l_1_slider.get()
-        self.l_2     = self.l_2_slider.get()
-        self.g       = self.g_slider.get()
-        self.F       = self.F_slider.get()
-        self.omega_F = self.F_omega_slider.get()
+        self.m_1           = self.m_1_slider.get()
+        self.m_2           = self.m_2_slider.get()
+        self.l_1           = self.l_1_slider.get()
+        self.l_2           = self.l_2_slider.get()
+        self.g             = self.g_slider.get()
+        self.F             = self.F_slider.get()
+        self.omega_F       = self.F_omega_slider.get()
+        self.omega_F_range = self.F_range_slider.get()
         
         #Drawing scale changed
         old_scale = self.drawing_scale
@@ -789,27 +840,90 @@ class MyGUI:
     
     def damping_analysis_btn_listener(self):
         print("Damping analysis started with the following parameters:")
-        print("F = ", self.F)
-        print("omega_F_max = ", self.omega_F)
-        print("m_1 = ", self.m_1, "; l_1 = ", self.l_1, "m_2 = ", self.m_2, "; l_2 = ", self.l_2, "; g = ", self.g)
+        omega_0 = np.sqrt(self.g / self.l_1)
+        param_string1 = "F = " + str(self.F) + "; omega_F = " + str(self.omega_F) + "; omega_F_range = " + str(self.omega_F_range) + "; omega_0 = " + str(omega_0)
+        param_string2 = "m_1 = " + str(self.m_1) + "; l_1 = " + str(self.l_1) + "; m_2 = " + str(self.m_2) + "; l_2 = " + str(self.l_2) + "; g = " + str(self.g)
+        print(param_string1)
+        print(param_string2)
         
         
-        self.damp_output_file = open('damping_analysis_output.csv', mode='w')
+        self.damp_output_popup = popupWindow(self.win)
+        self.win.wait_window(self.damp_output_popup.top)
+        output_filename = str(self.damp_output_popup.value)
+        
+        #self.damp_output_file = open('damping_analysis_output.csv', mode='w')
+
+        # We write all aggregate properties into damp_output_file
+        # and create a subfolder in Data called /trajectory_[filename] where we save each trajectory into 200 textfiles called trajectory_[number]
+        # and put global parameters into param_config_file at Data/config/__PARAM_MAP__.txt
+        # when damping-analyzer analyzes the output for the first time, it purges the /trajectory folder and leaves only the trajectories at resonant frequencies
+        # and it flips a switch property called "purge_trajectories" which is at index 9 in the __PARAM_MAP__
+        
+        # idea to make it cleaner: save aggregate outputs in the respective folders as well?
+
+        self.damp_output_file = open("Data/" + output_filename + '.csv', mode='w')
         self.damp_output_writer = csv.writer(self.damp_output_file,  delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        self.damp_output_writer.writerow( ['omega_F', 'max_theta', 't'])
+        # HEADER CHANGELOG: 't'->'max_theta_t', added 'avg_E' (average mechanical energy = <T + U>)
+        self.damp_output_writer.writerow( ['omega_F', 'max_theta', 'max_theta_t', 'avg_E', 'ang_f_1', 'ang_f_2', 'hp_1_std', 'hp_2_std'])
+
+        self.param_config_file = open("Data/config/__PARAM_MAP__.txt", mode="a+")
+        self.param_config_file.write("\n" + output_filename + ": " + param_string1 + "; " + param_string2 + "; purge_trajectories = 1")
+        self.param_config_file.close()
+
+        Path("Data/trajectory_" + output_filename).mkdir(parents=True, exist_ok=True)
         
-        omega_space = np.linspace(0.0, self.omega_F, 100)
-        max_t = 30.0
+        omega_space_min = self.omega_F - self.omega_F_range
+        omega_space_max = self.omega_F + self.omega_F_range
+        if omega_space_min < 0:
+            omega_space_min = 0.0
+        omega_space_datapoints = 200
+        omega_space = np.linspace(omega_space_min, omega_space_max, omega_space_datapoints)
+        max_t = 500.0
+        min_theta = 0.01
+        t_period_threshold = 100.0
         
         self.damp_progress_label['text'] = "Analysis in progress: 0%"
+        cycle_index = 0
         percentage_done = 0
         for omega_val in omega_space:
+
+            # Initialize dynamic properties and open the writer
+
+            cycle_index += 1
             self.t = 0.0
             self.set_static_param(0.0, 0.0)
             self.set_dynamic_param(0.0, 0.0)
             self.omega_F = omega_val
+
+            self.trajectory_output_file = open("Data/trajectory_" + output_filename + "/trajectory_" + str(cycle_index) + '.csv', mode='w')
+            self.trajectory_output_writer = csv.writer(self.trajectory_output_file,  delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            self.trajectory_output_writer.writerow( ['t', 'theta_1', 'theta_2', 'n'])
+            
+            # Quantities to be determined for each config
+            
             max_theta = 0.0
             max_theta_t = 0.0
+            average_mechanical_energy = 0.0
+            total_halfperiods_1 = 0
+            total_halfperiods_2 = 0
+            halfperiod_1_length_std = 0
+            halfperiod_2_length_std = 0
+
+            # Helping properties
+
+            last_halfperiod_1_t = 0.0
+            last_halfperiod_2_t = 0.0
+            halfperiod_1_length_list = []
+            halfperiod_2_length_list = []
+            number_of_active_cycles = 0
+            
+            # When to start counting the periods
+            period_sign_1 = 0
+            period_sign_2 = 0
+            period_signs_init = False
+            
+            # Perform the simulation for a particular configuration of parameters
+            
             while self.t < max_t:
                 t1, o1, t2, o2 = self.step()
                 self.theta_1 = t1
@@ -820,12 +934,77 @@ class MyGUI:
                 if t1 > max_theta:
                     max_theta = t1
                     max_theta_t = self.t
+                
+                
+                if self.t > t_period_threshold:
+                    
+                    number_of_active_cycles += 1
+
+                    # Check for increase of halfperiods
+                    # Remember that a halfperiod is also when the segment flips over - we need to check a modulo-ed version of the parameter
+                    if not period_signs_init:
+                        period_sign_1 = nonzero_sign(base_theta(t1))
+                        period_sign_2 = nonzero_sign(base_theta(t2))
+                        period_signs_init = True
+                        
+                    if (period_sign_1 * nonzero_sign(base_theta(t1)) == -1):
+                        period_sign_1 *= -1
+                        total_halfperiods_1 += 1
+                        if last_halfperiod_1_t != 0.0:
+                            halfperiod_1_length_list.append(self.t - last_halfperiod_1_t)
+                        last_halfperiod_1_t = self.t
+                        
+                    if (period_sign_2 * nonzero_sign(base_theta(t2)) == -1):
+                        period_sign_2 *= -1
+                        total_halfperiods_2 += 1
+                        if last_halfperiod_2_t != 0.0:
+                            halfperiod_2_length_list.append(self.t - last_halfperiod_2_t)
+                        last_halfperiod_2_t = self.t
+
+                    # Write dynamic properties into the correct output
+                    if self.theta_1 * self.theta_1 > min_theta * min_theta:
+                        self.trajectory_output_writer.writerow( [self.t, self.theta_1, self.theta_2, self.theta_2 / self.theta_1])
+                    # Write other to-be-aggregated data
+                    kinetic_energy, potential_energy, mechanical_energy = self.get_energy()
+                    average_mechanical_energy += mechanical_energy
+                    
+                    
             #print(omega_val, max_theta, max_theta_t)
-            percentage_done += 1
-            self.damp_progress_label['text'] = "Analysis in progress: " + str(percentage_done) + "%"
-            self.damp_output_writer.writerow([omega_val, max_theta, max_theta_t])
+            percentage_done = cycle_index * 100 / omega_space_datapoints
+            self.damp_progress_label['text'] = "Analysis in progress: " + str(round(percentage_done, 1)) + "%"
+            
+            average_mechanical_energy /= number_of_active_cycles
+            ang_f_1 = total_halfperiods_1 / (2.0 * (max_t - t_period_threshold)) * 2.0 * np.pi
+            ang_f_2 = total_halfperiods_2 / (2.0 * (max_t - t_period_threshold)) * 2.0 * np.pi
+            halfperiod_1_length_std = statistics.stdev(halfperiod_1_length_list)
+            halfperiod_2_length_std = statistics.stdev(halfperiod_2_length_list)
+            self.damp_output_writer.writerow([omega_val, max_theta, max_theta_t, average_mechanical_energy, ang_f_1, ang_f_2, halfperiod_1_length_std, halfperiod_2_length_std])
+
+            self.trajectory_output_file.close()
         
         self.damp_output_file.close()
+        self.damp_progress_label['text'] = "Data exported to file " + output_filename
+    
+    def load_prev_params_btn_listener(self):
+        print("Loading last saved session...")
+        meta_config_file = open("meta_config/GUI_META_CONFIG.txt", mode="r")
+        prev_params_string = meta_config_file.readlines()[0]
+        meta_config_file.close()
+        
+        my_prev_params_strings = prev_params_string.split(' ')
+        my_prev_params = []
+        for element in my_prev_params_strings:
+            my_prev_params.append(float(element))
+        #print(my_prev_params)
+        self.m_1_slider.set(my_prev_params[0])
+        self.m_2_slider.set(my_prev_params[1])
+        self.l_1_slider.set(my_prev_params[2])
+        self.l_2_slider.set(my_prev_params[3])
+        self.g_slider.set(my_prev_params[4])
+        
+        self.F_slider.set(my_prev_params[5])
+        self.F_omega_slider.set(my_prev_params[6])
+        self.F_range_slider.set(my_prev_params[7])
         
     def on_closing(self):
         #Close output files
@@ -834,6 +1013,14 @@ class MyGUI:
         
         #Release the last OpenCV video
         self.release_video()
+        
+        
+        #Save the global param config
+        meta_config_file = open("meta_config/GUI_META_CONFIG.txt", mode="w")
+        static_params_string = str(self.m_1) + " " + str(self.m_2) + " " + str(self.l_1) + " " + str(self.l_2) + " " + str(self.g)
+        force_params_string = str(self.F) + " " + str(self.F_omega_slider.get()) + " " + str(self.omega_F_range)
+        meta_config_file.write(static_params_string + " " + force_params_string)
+        meta_config_file.close()
         
         #Close down Tkinter
         self.win.destroy()
@@ -889,18 +1076,24 @@ class MyGUI:
         
         return(theta_1_new, omega_1_new, theta_2_new, omega_2_new)
     
-    def characterize(self):
+    def get_energy(self):
+        # Returns a tuple in the form (kinetic e., potential e., mechanical e.)
         T_1 = 0.5 * (self.m_1 + self.m_2) * self.l_1 * self.l_1 * self.omega_1 * self.omega_1
         T_2 = 0.5 * self.m_2 * self.l_2 * self.l_2 * self.omega_2 * self.omega_2
         T_3 = self.m_2 * self.l_1 * self.l_2 * self.omega_1 * self.omega_2 * np.cos(self.theta_2 - self.theta_1)
         cur_T = T_1 + T_2 + T_3
         cur_V = - (self.m_1 + self.m_2) * self.g * self.l_1 * np.cos(self.theta_1) - self.m_2 * self.g * self.l_2 * np.cos(self.theta_2)
-        
-        self.prop_T['text'] = "T = " + str(cur_T)
-        self.prop_V['text'] = "V = " + str(cur_V)
-        self.prop_E['text'] = "E = " + str(cur_T + cur_V)
-        
         return(cur_T, cur_V, cur_T + cur_V)
+    
+    
+    def characterize(self):
+        
+        kinetic_energy, potential_energy, mechanical_energy = self.get_energy()
+        self.prop_T['text'] = "T = " + str(kinetic_energy)
+        self.prop_V['text'] = "V = " + str(potential_energy)
+        self.prop_E['text'] = "E = " + str(mechanical_energy)
+        
+        return()
 
 
 #------------------------------------------------------------------        
